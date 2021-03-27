@@ -14,7 +14,7 @@ type App struct {
 }
 
 type shortenReq struct {
-	URL string `json:"url" validate:"nonzero"`
+	URL string `json:"url" validate:"url"`
 	ExpirationInMinutes int64 `json:"expiration_in_minutes" validate:"min=0"`
 }
 
@@ -37,9 +37,17 @@ func (a *App) initializeRoutes() {
 func (a *App) createShortlink(w http.ResponseWriter, r *http.Request) {
 	var req shortenReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, StatusError{
+			Code: http.StatusBadRequest,
+			Err:  fmt.Errorf("failed to parse the request due to %v", r.Body),
+		})
 		return
 	}
 	if err := validator.New().Struct(req); err != nil {
+		respondWithError(w, StatusError{
+			Code: http.StatusBadRequest,
+			Err:  fmt.Errorf("failed to validate the request due to %v", req),
+		})
 		return
 	}
 	defer r.Body.Close()
@@ -60,4 +68,22 @@ func (a *App) redirect(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) Run(addr string) {
 	log.Fatal(http.ListenAndServe(addr, a.Router))
+}
+
+func respondWithError(w http.ResponseWriter, err error) {
+	switch e := err.(type) {
+	case Error:
+		log.Printf("HTTP %d - %s", e.Status(), e)
+		respondWithJSON(w, e.Status(), e.Error())
+	default:
+		respondWithJSON(w, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
+	}
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{})  {
+	resp, _ := json.Marshal(payload)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(resp)
 }
